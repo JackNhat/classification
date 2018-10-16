@@ -61,6 +61,4 @@ fabric.properties
 # Editor-based Rest Client
 .idea/httpRequests
 
-/models/tfidf.transformer.pkl
-.idea/
-/models/*
+.idea

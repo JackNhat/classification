@@ -1,70 +1,93 @@
-import argparse
-import os
-import pickle
-from time import time
+import pandas as pd
+import numpy as np
+from keras.layers import Dense, Embedding, SpatialDropout1D
+from keras.models import Sequential
+from keras.layers import LSTM
+from keras.preprocessing import sequence
+from sklearn.preprocessing import LabelEncoder
+from collections import Counter
 
-from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.model_selection import train_test_split
-from sklearn.multiclass import OneVsRestClassifier
-from sklearn.preprocessing import MultiLabelBinarizer
-from sklearn.svm import LinearSVC
+from underthesea import word_tokenize
 
-from util.load_data import load_dataset
 from util.model_evaluation import get_metrics
 
-parser = argparse.ArgumentParser("train.py")
-parser.add_argument("--mode", help="available modes: train-test, train-test-split, cross-validation", required=True)
-parser.add_argument("--train", help="train folder")
-parser.add_argument("--test", help="test folder")
-parser.add_argument("--s", help="path to save model")
-parser.add_argument("--train_size", type=float,
-                    help="train/test split ratio")
-args = parser.parse_args()
+
+def normalize(text):
+    output = text.replace("\n", "")
+    output = output.lower().strip()
+    return output
 
 
-def save_model(filename, clf):
-    with open(filename, 'wb') as f:
-        pickle.dump(clf, f, pickle.HIGHEST_PROTOCOL)
+if __name__ == '__main__':
+    # DATA
+    data = pd.read_csv("data/corpus/data.csv")
+    texts = np.array(data["text"])
+    types = np.array(data["label"])
+    labels = list(set(types.tolist()))
+    split_size = 0.8
+    train_size = int(texts.shape[0]*split_size)
 
+    X_train, y_train = texts[:train_size], types[:train_size]
+    X_test, y_test = texts[train_size:], types[train_size:]
 
-if args.mode == "train-test":
-    if not (args.train and args.test):
-        parser.error("Mode train-test requires --train and --test")
-    train_path = os.path.abspath(args.train)
-    test_path = os.path.abspath(args.test)
-    train_size = args.train_size
-    model_path = os.path.abspath(args.s)
-    test = args.test
-    print("Load data")
-    X_train, y_train = load_dataset(train_path)
-    X_test, y_test = load_dataset(test_path)
-    X = X_train + X_test
-    y = y_train + y_test
-    target_names = list(set([i[0] for i in y]))
-    print("%d documents (training set)" % len(X_train))
-    print("%d documents (test set)" % len(X_test))
-    print("%d categories" % len(target_names))
-    print()
+    norm_train_texts = [normalize(i) for i in X_train]
+    norm_test_texts = [normalize(i) for i in X_test]
 
-    print("Training model")
-    t0 = time()
-    transformer = CountVectorizer(ngram_range=(1, 2))
-    X = transformer.fit_transform(X)
-    y_transformer = MultiLabelBinarizer()
-    y = y_transformer.fit_transform(y)
+    tokenized_train = [word_tokenize(text) for text in norm_train_texts]
+    tokenized_test = [word_tokenize(text) for text in norm_test_texts]
 
-    model = OneVsRestClassifier(LinearSVC())
-    X_train, X_dev, y_train, y_dev = train_test_split(X, y, train_size=train_size)
-    estimator = model.fit(X_train, y_train)
-    train_time = time() - t0
-    print("\t-train time: %0.3fs" % train_time)
+    # FEATURE ENGINEERING
+    le = LabelEncoder()
+    num_classes = 2
+    max_len = np.max([len(review) for review in tokenized_train])
 
-    t0 = time()
-    y_pred = estimator.predict(X_dev)
-    test_time = time() - t0
-    print("\t-test time: %0.3fs" % test_time)
+    token_counter = Counter([token for review in tokenized_train for token in review])
+    vocab_map = {item[0]: index + 1 for index, item in enumerate(dict(token_counter).items())}
+    max_index = np.max(list(vocab_map.values()))
+    vocab_map["PAD_INDEX"] = 0
+    vocab_map["NOT_FOUND_INDEX"] = max_index + 1
+    vocab_size = len(vocab_map)
 
-    get_metrics(y_dev, y_pred)
-    save_model(model_path + "count.transformer.pkl", transformer)
-    save_model(model_path + "y_transformer.pkl", y_transformer)
-    save_model(model_path + "model.pkl", estimator)
+    # Train reviews data corpus
+    train_X = [[vocab_map[token] for token in tokenized_review]
+               for tokenized_review in tokenized_train]
+    train_X = sequence.pad_sequences(train_X, maxlen=max_len)
+
+    # Train prediction class labels
+    train_y = le.fit_transform(y_train)
+
+    # Test reviews data corpus
+    test_X = [[vocab_map[token] if vocab_map.get(token) else vocab_map["NOT_FOUND_INDEX"]
+               for token in tokenized_review]
+              for tokenized_review in tokenized_test]
+    test_X = sequence.pad_sequences(test_X, maxlen=max_len)
+    # Test prediction class labels
+    # Convert text sentiments labels to binary encoding
+    test_y = le.fit_transform(y_test)
+
+    # TRAINING MODEL
+    EMBEDDING_DIM = 128
+    LSTM_DIM = 64
+
+    model = Sequential()
+    model.add(Embedding(input_dim=vocab_size, output_dim=EMBEDDING_DIM,
+                        input_length=max_len))
+    model.add(SpatialDropout1D(0.2))
+    model.add(LSTM(LSTM_DIM, dropout=0.2, recurrent_dropout=0.2))
+    model.add(Dense(len(labels), activation="sigmoid"))
+
+    model.compile(loss="sparse_categorical_crossentropy", optimizer="adam",
+                  metrics=["accuracy"])
+    batch_size = 128
+    model.fit(train_X, train_y, epochs=5, batch_size=batch_size,
+              shuffle=True, validation_split=0.1, verbose=1)
+
+    #  EVALUATE
+    pred_test = model.predict_classes(test_X)
+    predictions = le.inverse_transform(pred_test)
+    get_metrics(test_y, pred_test)
+
+    # SAVE MODEL
+    model_yaml = model.to_yaml()
+    with open("model.yaml", "w") as m:
+        m.write(model_yaml)

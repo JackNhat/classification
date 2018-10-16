@@ -1,9 +1,8 @@
+import csv
 import os
 import string
 from os.path import join, dirname
 from random import shuffle
-
-import pandas as pd
 
 
 def normalize_text(text):
@@ -16,39 +15,31 @@ def normalize_text(text):
 def load_data(folder):
     data = []
     label = folder.split("/")[-1].lower().replace(" ", "_")
-    files = [join(folder, x) for x in os.listdir(folder)]
+    files = [join(folder, x) for x in os.listdir(folder)][:5]
     for file in files:
         with open(file, "rb") as f:
             content = f.read()
             content = content.decode('utf-16')
-        data.append({"label": label, "text": content})
+        data.append({"text": normalize_text(content), "label": label})
     return data
 
 
 def convert_to_corpus(name, rows):
-    output = []
-    labels = list(set([row["label"] for row in rows]))
-    for row in rows:
-        item = {}
-        item["text"] = normalize_text(row["text"])
-        for label in labels:
-            if label in row["label"]:
-                item[label] = 1
-            else:
-                item[label] = 0
-        output.append(item)
-    shuffle(output)
-    df = pd.DataFrame(output)
-    columns = ["text"] + labels
-    file = join(dirname(dirname(__file__)), "data", "corpus", "{}.xlsx".format(name))
-    df.to_excel(file, columns=columns, index=False)
+    corpus_path = join(path, "corpus", name)
+    columns = ["text", "label"]
+    with open(corpus_path, "w") as file:
+        writer = csv.DictWriter(file, fieldnames=columns)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
 
 
 if __name__ == '__main__':
-    path = join(dirname(dirname(__file__)), 'data', 'raw')
-    train_folder = [join(path, "train", i) for i in os.listdir(join(path, "train"))]
-    test_folder = [join(path, "test", i) for i in os.listdir(join(path, "test"))]
-    train = [x for i in train_folder for x in load_data(i)]
-    test = [x for i in test_folder for x in load_data(i)]
-    convert_to_corpus("train", train)
-    convert_to_corpus("test", test)
+    path = join(dirname(dirname(__file__)), 'data')
+    train_folder = [join(path, "raw", "train", i) for i in os.listdir(join(path, "raw", "train"))]
+    test_folder = [join(path, "raw", "test", i) for i in os.listdir(join(path, "raw", "test"))]
+    train = [i for x in train_folder for i in load_data(x)]
+    test = [i for x in test_folder for i in load_data(x)]
+    data = train + test
+    shuffle(data)
+    convert_to_corpus("data.csv", data)
