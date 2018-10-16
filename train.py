@@ -20,15 +20,14 @@ def normalize(text):
 
 if __name__ == '__main__':
     # DATA
-    data = pd.read_csv("data/corpus/data.csv")
-    texts = np.array(data["text"])
-    types = np.array(data["label"])
-    labels = list(set(types.tolist()))
-    split_size = 0.8
-    train_size = int(texts.shape[0]*split_size)
+    train = pd.read_csv("data/corpus/train.csv")
+    X_train = np.array(train["text"])
+    y_train = np.array(train["label"])
+    labels = list(set(y_train.tolist()))
 
-    X_train, y_train = texts[:train_size], types[:train_size]
-    X_test, y_test = texts[train_size:], types[train_size:]
+    test = pd.read_csv("data/corpus/test.csv")
+    X_test = np.array(test["text"])
+    y_test = np.array(test["label"])
 
     norm_train_texts = [normalize(i) for i in X_train]
     norm_test_texts = [normalize(i) for i in X_test]

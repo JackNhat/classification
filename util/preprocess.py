@@ -15,7 +15,7 @@ def normalize_text(text):
 def load_data(folder):
     data = []
     label = folder.split("/")[-1].lower().replace(" ", "_")
-    files = [join(folder, x) for x in os.listdir(folder)][:5]
+    files = [join(folder, x) for x in os.listdir(folder)][:2]
     for file in files:
         with open(file, "rb") as f:
             content = f.read()
@@ -40,6 +40,7 @@ if __name__ == '__main__':
     test_folder = [join(path, "raw", "test", i) for i in os.listdir(join(path, "raw", "test"))]
     train = [i for x in train_folder for i in load_data(x)]
     test = [i for x in test_folder for i in load_data(x)]
-    data = train + test
-    shuffle(data)
-    convert_to_corpus("data.csv", data)
+    shuffle(train)
+    shuffle(test)
+    # convert_to_corpus("train.csv", train)
+    convert_to_corpus("test.csv", test)
