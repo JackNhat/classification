@@ -1,3 +1,5 @@
+import pickle
+
 import pandas as pd
 import numpy as np
 from keras.layers import Dense, Embedding, SpatialDropout1D
@@ -7,15 +9,12 @@ from keras.preprocessing import sequence
 from sklearn.preprocessing import LabelEncoder
 from collections import Counter
 
-from underthesea import word_tokenize
-
 from util.model_evaluation import get_metrics
 
 
-def normalize(text):
-    output = text.replace("\n", "")
-    output = output.lower().strip()
-    return output
+def save_model(path, obj):
+    with open(path, "wb") as f:
+        pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
 
 
 if __name__ == '__main__':
@@ -29,39 +28,28 @@ if __name__ == '__main__':
     X_test = np.array(test["text"])
     y_test = np.array(test["label"])
 
-    norm_train_texts = [normalize(i) for i in X_train]
-    norm_test_texts = [normalize(i) for i in X_test]
-
-    tokenized_train = [word_tokenize(text) for text in norm_train_texts]
-    tokenized_test = [word_tokenize(text) for text in norm_test_texts]
-
     # FEATURE ENGINEERING
     le = LabelEncoder()
     num_classes = 2
-    max_len = np.max([len(review) for review in tokenized_train])
+    max_len = np.max([len(text) for text in [x.split() for x in X_train]])
 
-    token_counter = Counter([token for review in tokenized_train for token in review])
+    token_counter = Counter([token for review in [x.split() for x in X_train] for token in review])
     vocab_map = {item[0]: index + 1 for index, item in enumerate(dict(token_counter).items())}
     max_index = np.max(list(vocab_map.values()))
     vocab_map["PAD_INDEX"] = 0
     vocab_map["NOT_FOUND_INDEX"] = max_index + 1
     vocab_size = len(vocab_map)
 
-    # Train reviews data corpus
-    train_X = [[vocab_map[token] for token in tokenized_review]
-               for tokenized_review in tokenized_train]
+    train_X = [[vocab_map[token] for token in tokens]
+               for tokens in [x.split() for x in X_train]]
     train_X = sequence.pad_sequences(train_X, maxlen=max_len)
 
-    # Train prediction class labels
     train_y = le.fit_transform(y_train)
 
-    # Test reviews data corpus
     test_X = [[vocab_map[token] if vocab_map.get(token) else vocab_map["NOT_FOUND_INDEX"]
-               for token in tokenized_review]
-              for tokenized_review in tokenized_test]
+               for token in tokens]
+              for tokens in [x.split() for x in X_test]]
     test_X = sequence.pad_sequences(test_X, maxlen=max_len)
-    # Test prediction class labels
-    # Convert text sentiments labels to binary encoding
     test_y = le.fit_transform(y_test)
 
     # TRAINING MODEL
@@ -88,5 +76,5 @@ if __name__ == '__main__':
 
     # SAVE MODEL
     model_yaml = model.to_yaml()
-    with open("model.yaml", "w") as m:
-        m.write(model_yaml)
+    save_model("models/dictionary.pkl", vocab_map)
+    save_model("models/y_transform.pkl", le)
